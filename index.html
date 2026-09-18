@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulador de Mente Artificial - C. elegans Quimiotaxis</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #1e1e2f; color: #ffffff; margin: 0; padding: 20px; }
+        h1 { text-align: center; color: #4e9af1; margin-bottom: 5px; }
+        p.subtitle { text-align: center; color: #a0a0b8; font-size: 0.9em; margin-bottom: 20px; }
+        .container { display: flex; flex-wrap: wrap; justify-content: center; gap: 20px; }
+        canvas { background-color: #0d0d15; border: 2px solid #33334d; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+        .panel { background-color: #2a2a3d; padding: 20px; border-radius: 8px; min-width: 280px; max-width: 320px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+        .control-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-size: 0.85em; color: #cfcfeb; }
+        input[type="range"] { width: 100%; }
+        button { width: 100%; padding: 10px; background-color: #4e9af1; border: none; color: white; font-weight: bold; border-radius: 4px; cursor: pointer; transition: background 0.2s; margin-top: 5px; }
+        button:hover { background-color: #3b82d6; }
+        .stats { background: #181824; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 0.85em; margin-top: 15px; }
+        .stat-item { margin-bottom: 5px; color: #7ec8e3; }
+    </style>
+</head>
+<body>
+
+    <h1>Mente Artificial Adaptativa: <i>C. elegans</i></h1>
+    <p class="subtitle">Simulación de Quimiotaxis por Klinotaxis ("Run & Tumble")</p>
+
+    <div class="container">
+        <canvas id="simCanvas" width="600" height="500"></canvas>
+
+        <div class="panel">
+            <h3>Panel de Control</h3>
+            
+            <div class="control-group">
+                <label for="sensibilidad">Sensibilidad Quimiosensorial (Neurona ASE):</label>
+                <input type="range" id="sensibilidad" min="1" max="10" value="5">
+            </div>
+
+            <div class="control-group">
+                <label for="velocidad">Velocidad Motor (SMB):</label>
+                <input type="range" id="velocidad" min="1" max="5" value="2" step="0.5">
+            </div>
+
+            <button id="btnMoverFuente">Mover Fuente de Alimento</button>
+            <button id="btnReset" style="background-color: #e74c3c;">Reiniciar Agente</button>
+
+            <div class="stats">
+                <div class="stat-item">Estado Neuronal: <span id="lblEstado" style="color:#2ecc71;">RUN</span></div>
+                <div class="stat-item">Concentración C(x,y): <span id="lblConc">0.00</span></div>
+                <div class="stat-item">Variación ΔC: <span id="lblDelta">0.00</span></div>
+                <div class="stat-item">Distancia a Fuente: <span id="lblDist">0 px</span></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let fuente = { x: 450, y: 100, radio: 200, intensidad: 100 };
+
+        class AgenteCElegans {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.angulo = Math.random() * Math.PI * 2;
+                this.velocidad = 2;
+                this.cPrev = 0;
+                this.estado = 'RUN';
+                this.historial = [];
+                this.sensibilidad = 5;
+            }
+
+            medirConcentracion(f) {
+                let d = Math.hypot(this.x - f.x, this.y - f.y);
+                if (d > f.radio) return 0;
+                return f.intensidad * (1 - d / f.radio);
+            }
+
+            actualizar(f) {
+                let cActual = this.medirConcentracion(f);
+                let deltaC = cActual - this.cPrev;
+                let umbralSensorial = (11 - this.sensibilidad) * 0.05;
+                
+                if (deltaC < -umbralSensorial) {
+                    this.estado = 'TUMBLE';
+                    this.angulo += (Math.random() - 0.5) * Math.PI * 1.6;
+                } else {
+                    this.estado = 'RUN';
+                    this.angulo += (Math.random() - 0.5) * 0.2;
+                }
+
+                this.x += Math.cos(this.angulo) * this.velocidad;
+                this.y += Math.sin(this.angulo) * this.velocidad;
+
+                this.x = Math.max(10, Math.min(canvas.width - 10, this.x));
+                this.y = Math.max(10, Math.min(canvas.height - 10, this.y));
+
+                this.historial.push({ x: this.x, y: this.y, estado: this.estado });
+                if (this.historial.length > 300) this.historial.shift();
+
+                this.cPrev = cActual;
+                return { cActual, deltaC };
+            }
+
+            dibujar(ctx) {
+                for (let i = 1; i < this.historial.length; i++) {
+                    ctx.beginPath();
+                    ctx.moveTo(this.historial[i-1].x, this.historial[i-1].y);
+                    ctx.lineTo(this.historial[i].x, this.historial[i].y);
+                    ctx.strokeStyle = this.historial[i].estado === 'RUN' ? 'rgba(46, 204, 113, 0.4)' : 'rgba(231, 76, 60, 0.6)';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.angulo);
+                ctx.fillStyle = this.estado === 'RUN' ? '#2ecc71' : '#e74c3c';
+                ctx.beginPath();
+                ctx.arc(0, 0, 6, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(2, -2, 4, 4);
+                ctx.restore();
+            }
+        }
+
+        function randomRange(min, max) { return Math.random() * (max - min) + min; }
+
+        const agente = new AgenteCElegans(100, 400);
+
+        function dibujarCampoQuimico() {
+            let gradiente = ctx.createRadialGradient(fuente.x, fuente.y, 0, fuente.x, fuente.y, fuente.radio);
+            gradiente.addColorStop(0, 'rgba(78, 154, 241, 0.4)');
+            gradiente.addColorStop(0.5, 'rgba(78, 154, 241, 0.15)');
+            gradiente.addColorStop(1, 'rgba(78, 154, 241, 0)');
+
+            ctx.fillStyle = gradiente;
+            ctx.beginPath();
+            ctx.arc(fuente.x, fuente.y, fuente.radio, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.fillStyle = '#4e9af1';
+            ctx.beginPath();
+            ctx.arc(fuente.x, fuente.y, 8, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        function loop() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            dibujarCampoQuimico();
+            let datos = agente.actualizar(fuente);
+            agente.dibujar(ctx);
+
+            document.getElementById('lblEstado').innerText = agente.estado;
+            document.getElementById('lblEstado').style.color = agente.estado === 'RUN' ? '#2ecc71' : '#e74c3c';
+            document.getElementById('lblConc').innerText = datos.cActual.toFixed(2);
+            document.getElementById('lblDelta').innerText = datos.deltaC.toFixed(3);
+            document.getElementById('lblDist').innerText = Math.round(Math.hypot(agente.x - fuente.x, agente.y - fuente.y)) + " px";
+
+            requestAnimationFrame(loop);
+        }
+
+        document.getElementById('sensibilidad').addEventListener('input', (e) => { agente.sensibilidad = parseFloat(e.target.value); });
+        document.getElementById('velocidad').addEventListener('input', (e) => { agente.velocidad = parseFloat(e.target.value); });
+        document.getElementById('btnMoverFuente').addEventListener('click', () => {
+            fuente.x = randomRange(100, canvas.width - 100);
+            fuente.y = randomRange(100, canvas.height - 100);
+        });
+        document.getElementById('btnReset').addEventListener('click', () => {
+            agente.x = 100; agente.y = 400; agente.historial = [];
+        });
+
+        loop();
+    </script>
+</body>
+</html>
